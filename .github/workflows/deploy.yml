@@ -1,44 +1,57 @@
-name: Build and Deploy Flask App to Azure
-
-on:
-  push:
-    branches:
+trigger:
+  branches:
+    include:
       - main
-  workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+pool:
+  vmImage: 'ubuntu-latest'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+variables:
+  pythonVersion: '3.12'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '$(pythonVersion)'
+      addToPath: true
 
-      - name: Run syntax check
-        run: python -m compileall .
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+    displayName: 'Install dependencies'
 
-      - name: Archive app for deployment
-        run: zip -r app.zip .
+  - script: |
+      python -m compileall .
+    displayName: 'Syntax check'
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  - task: ArchiveFiles@2
+    inputs:
+      rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
+      includeRootFolder: false
+      archiveType: 'zip'
+      archiveFile: '$(Build.ArtifactStagingDirectory)/app.zip'
+      replaceExistingArchive: true
+    displayName: 'Package app'
 
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: 'CustomerFeedbackAI'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: .
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/app.zip'
+      ArtifactName: 'drop'
+      publishLocation: 'Container'
+    displayName: 'Publish Artifact'
+
+  - task: DownloadBuildArtifacts@0
+    inputs:
+      buildType: 'current'
+      downloadType: 'single'
+      artifactName: 'drop'
+      downloadPath: '$(System.DefaultWorkingDirectory)/drop'
+    displayName: 'Download Artifact'
+
+  - task: AzureWebApp@1
+    inputs:
+      azureSubscription: 'Azure subscription 1'
+      appType: 'webAppLinux'
+      appName: 'customerfeedbackai'
+      package: '$(System.DefaultWorkingDirectory)/drop/app.zip'
+    displayName: 'Deploy to Azure Web App'
